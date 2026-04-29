@@ -20,7 +20,7 @@ import {
   Save,
   Sparkles
 } from 'lucide-react';
-import { AIPopup } from './AIPopup';
+import { AI_ACTIONS, type AIAction, AIPopup } from './AIPopup';
 import { CollaborationPresence } from './CollaborationPresence';
 import { streamSuggestion } from '../lib/api';
 import { docToPlainText } from '../lib/editorText';
@@ -50,7 +50,10 @@ export function EditorSurface({ token, document, onSave }: Props) {
   const [aiOpen, setAiOpen] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiSuggestion, setAiSuggestion] = useState('');
-  const [selectedOption, setSelectedOption] = useState('Continue writing');
+  const [selectedOption, setSelectedOption] = useState('');
+  const [customPrompt, setCustomPrompt] = useState('');
+  const [aiError, setAiError] = useState('');
+  const [lastInstruction, setLastInstruction] = useState('');
   const [remoteCursors, setRemoteCursors] = useState<Collaborator[]>([]);
   const [stats, setStats] = useState<EditorStats>({ words: 0, blocks: 0, characters: 0, readingMinutes: 1 });
   const [focusMode, setFocusMode] = useState(false);
@@ -176,7 +179,7 @@ export function EditorSurface({ token, document, onSave }: Props) {
     function onKeyDown(event: KeyboardEvent) {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'j') {
         event.preventDefault();
-        void openAi('Continue writing');
+        showAiPanel();
       }
       if (event.key === 'Escape' && aiOpen) {
         event.preventDefault();
@@ -190,7 +193,7 @@ export function EditorSurface({ token, document, onSave }: Props) {
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [aiOpen, aiSuggestion, editor, selectedOption]);
+  }, [aiOpen, aiSuggestion, editor, selectedOption, lastInstruction]);
 
   async function saveNow() {
     if (!editor || !document) return;
@@ -199,24 +202,56 @@ export function EditorSurface({ token, document, onSave }: Props) {
     setStatus('Saved');
   }
 
-  async function openAi(option: string) {
+  function showAiPanel() {
     if (!editor || !document) return;
-    setSelectedOption(option);
+    setAiOpen(true);
+    setAiError('');
+    const selectedText = getSelectedText();
+    if (!selectedText && !customPrompt) {
+      setSelectedOption('');
+    }
+  }
+
+  async function openAi(action: AIAction | string) {
+    if (!editor || !document) return;
+    const instruction = typeof action === 'string' ? action : action.instruction;
+    const label = typeof action === 'string' ? action : action.label;
+    setSelectedOption(label);
+    setLastInstruction(instruction);
     setAiOpen(true);
     setAiLoading(true);
     setAiSuggestion('');
+    setAiError('');
     const { from, to } = editor.state.selection;
     const selectedText = editor.state.doc.textBetween(from, to, ' ');
     const surroundingText = docToPlainText(editor.getJSON());
     try {
       await streamSuggestion(
         token,
-        { text: selectedText, instruction: option, document_title: title, surrounding_text: surroundingText.slice(0, 4000) },
+        { text: selectedText, instruction, document_title: title, surrounding_text: surroundingText.slice(0, 4000) },
         (chunk) => setAiSuggestion((value) => value + chunk)
       );
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : 'AI could not generate a suggestion.');
     } finally {
       setAiLoading(false);
     }
+  }
+
+  function runCustomPrompt() {
+    const prompt = customPrompt.trim();
+    if (!prompt) return;
+    void openAi({ label: 'Custom ask', instruction: prompt, description: 'Your prompt', tone: 'write' });
+  }
+
+  function regenerateSuggestion() {
+    if (!lastInstruction) {
+      const selectedText = getSelectedText();
+      const fallbackAction = selectedText ? AI_ACTIONS[0] : AI_ACTIONS[1];
+      void openAi(fallbackAction);
+      return;
+    }
+    void openAi({ label: selectedOption || 'Regenerate', instruction: `${lastInstruction}\n\nTry a fresh version with different wording.`, description: 'Fresh version', tone: 'edit' });
   }
 
   function acceptSuggestion() {
@@ -225,6 +260,26 @@ export function EditorSurface({ token, document, onSave }: Props) {
     editor.chain().focus().insertContentAt({ from, to }, aiSuggestion).run();
     setAiOpen(false);
     setAiSuggestion('');
+  }
+
+  function insertSuggestionBelow() {
+    if (!editor || !aiSuggestion) return;
+    editor.chain().focus().insertContent([{ type: 'paragraph', content: [{ type: 'text', text: aiSuggestion }] }]).run();
+    setAiOpen(false);
+    setAiSuggestion('');
+  }
+
+  function getSelectedText() {
+    if (!editor) return '';
+    const { from, to } = editor.state.selection;
+    return editor.state.doc.textBetween(from, to, ' ').trim();
+  }
+
+  function getAiContextLabel() {
+    const selectedWords = getSelectedText().split(/\s+/).filter(Boolean).length;
+    if (selectedWords > 0) return `${selectedWords} selected words`;
+    if (stats.words > 0) return `Using ${stats.words} document words`;
+    return 'Ready for a new draft';
   }
 
   function exportText() {
@@ -334,7 +389,7 @@ export function EditorSurface({ token, document, onSave }: Props) {
           <div className="toolbar-actions">
             <CollaborationPresence users={remoteCursors} connected={connected} />
             <span className="save-status">{status}</span>
-            <button className="icon-button ai-quick" type="button" onClick={() => void openAi('Improve this paragraph')} title="AI improve">
+            <button className="icon-button ai-quick" type="button" onClick={showAiPanel} title="AI improve">
               <Sparkles size={18} />
             </button>
             <button className="icon-button" type="button" onClick={exportText} title="Export Markdown">
@@ -359,11 +414,19 @@ export function EditorSurface({ token, document, onSave }: Props) {
           loading={aiLoading}
           suggestion={aiSuggestion}
           selectedOption={selectedOption}
-          onOption={(option) => void openAi(option)}
+          customPrompt={customPrompt}
+          contextLabel={getAiContextLabel()}
+          error={aiError}
+          onOption={(action) => void openAi(action)}
+          onCustomPromptChange={setCustomPrompt}
+          onCustomSubmit={runCustomPrompt}
           onAccept={acceptSuggestion}
+          onInsertBelow={insertSuggestionBelow}
+          onRegenerate={regenerateSuggestion}
           onDismiss={() => {
             setAiOpen(false);
             setAiSuggestion('');
+            setAiError('');
           }}
         />
       </div>

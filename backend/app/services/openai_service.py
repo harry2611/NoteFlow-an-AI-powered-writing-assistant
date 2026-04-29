@@ -64,8 +64,68 @@ class OpenAIService:
         return [item.embedding for item in response.data]
 
     def _fallback_text(self, text: str, instruction: str) -> str:
-        source = text.strip() or "Start writing your next idea with clarity and momentum."
-        return f"{source} ({instruction.lower()} draft generated locally; configure OPENAI_API_KEY for GPT-4o output.)"
+        source = " ".join((text or "").split())
+        instruction_key = instruction.lower()
+        if not source:
+            source = "This draft is ready for a clearer next idea."
+
+        if "brainstorm" in instruction_key or "ideas" in instruction_key:
+            return (
+                "Five promising directions:\n"
+                "1. Clarify the main outcome the reader should remember.\n"
+                "2. Add one concrete example or detail to make the point feel real.\n"
+                "3. Explain why this matters now.\n"
+                "4. Turn the next step into a crisp action.\n"
+                "5. Close with a memorable sentence that ties the idea back to the document."
+            )
+
+        if "continue" in instruction_key:
+            return (
+                f"{source} From here, the next section can build on the idea with a specific example, "
+                "then connect it back to the larger purpose of the document. A strong follow-up would make the reader feel guided, not rushed."
+            )
+
+        if "shorter" in instruction_key or "concise" in instruction_key or "sharper" in instruction_key:
+            words = source.split()
+            shortened = " ".join(words[: min(len(words), 22)])
+            return shortened.rstrip(".,;:") + "."
+
+        if "formal" in instruction_key or "professional" in instruction_key:
+            return (
+                "A more polished version: "
+                + source[:1].upper()
+                + source[1:]
+                + " This framing presents the point clearly while maintaining a professional and considered tone."
+            )
+
+        if "warm" in instruction_key or "human" in instruction_key:
+            return (
+                "A warmer version: "
+                + source
+                + " The idea feels strongest when it sounds clear, direct, and a little more personal."
+            )
+
+        if "summarize" in instruction_key or "summary" in instruction_key:
+            return f"Summary: {source[:220].rstrip()}."
+
+        if "grammar" in instruction_key or "spelling" in instruction_key or "punctuation" in instruction_key:
+            cleaned = source[:1].upper() + source[1:]
+            if cleaned[-1:] not in ".!?":
+                cleaned += "."
+            return cleaned
+
+        if "fresh version" in instruction_key or "different wording" in instruction_key:
+            return (
+                "Here is a fresh take: "
+                + source
+                + " The revised version should feel smoother, more specific, and easier to keep reading."
+            )
+
+        return (
+            "Suggested rewrite: "
+            + source
+            + " This version keeps the original intent while improving clarity, rhythm, and readability."
+        )
 
     def _deterministic_embedding(self, text: str) -> list[float]:
         values = [0.0] * 1536
@@ -76,4 +136,3 @@ class OpenAIService:
 
 
 openai_service = OpenAIService()
-
