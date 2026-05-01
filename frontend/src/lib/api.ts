@@ -1,8 +1,19 @@
 import axios from 'axios';
 import type { AuthResponse, DocumentListItem, NoteDocument, SearchResult } from '../types';
 
-export const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
-export const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8000';
+function sameOriginApiUrl() {
+  if (typeof window === 'undefined') return 'http://localhost:8000';
+  return `${window.location.origin}/api`;
+}
+
+function sameOriginWsUrl() {
+  if (typeof window === 'undefined') return 'ws://localhost:8000';
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.host}`;
+}
+
+export const API_URL = import.meta.env.VITE_API_URL || sameOriginApiUrl();
+export const WS_URL = import.meta.env.VITE_WS_URL || sameOriginWsUrl();
 
 export const api = axios.create({
   baseURL: API_URL

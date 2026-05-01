@@ -17,6 +17,7 @@ export default function App() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
+  const [globalError, setGlobalError] = useState<string | null>(null);
 
   useEffect(() => {
     const cached = window.localStorage.getItem(AUTH_KEY);
@@ -74,29 +75,46 @@ export default function App() {
     window.localStorage.removeItem(AUTH_KEY);
   }
 
+  function showError(message: string) {
+    setGlobalError(message);
+    window.setTimeout(() => setGlobalError(null), 4000);
+  }
+
   async function refreshDocuments() {
-    const docs = await listDocuments();
-    setDocuments(docs);
-    if (!activeDocument && docs[0]) {
-      await openDocument(docs[0].id);
+    try {
+      const docs = await listDocuments();
+      setDocuments(docs);
+      if (!activeDocument && docs[0]) {
+        await openDocument(docs[0].id);
+      }
+    } catch {
+      showError('Failed to load documents. Please check your connection.');
     }
   }
 
   async function openDocument(id: string, chunkIndex?: number) {
-    const doc = await getDocument(id);
-    setActiveDocument(doc);
-    setQuery('');
-    if (typeof chunkIndex === 'number') {
-      window.setTimeout(() => {
-        document.querySelectorAll('[data-block-id]')[chunkIndex]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 100);
+    try {
+      const doc = await getDocument(id);
+      setActiveDocument(doc);
+      setQuery('');
+      if (typeof chunkIndex === 'number') {
+        window.setTimeout(() => {
+          document.querySelectorAll('[data-block-id]')[chunkIndex]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 100);
+      }
+    } catch {
+      showError('Could not open the document. It may have been deleted.');
     }
   }
 
   async function createNewDocument() {
-    const doc = await createDocument();
-    setActiveDocument(doc);
-    await refreshDocuments();
+    try {
+      const doc = await createDocument();
+      setActiveDocument(doc);
+      await refreshDocuments();
+    } catch {
+      showError('Failed to create a new document. Please try again.');
+    }
   }
 
   async function removeDocument(id: string) {
@@ -144,6 +162,11 @@ export default function App() {
         <SearchPanel query={query} results={results} loading={searching} onOpen={openDocument} />
         <EditorSurface token={token} document={activeDocument} onSave={persistActiveDocument} />
       </main>
+      {globalError && (
+        <div className="error-toast" role="alert">
+          {globalError}
+        </div>
+      )}
     </div>
   );
 }

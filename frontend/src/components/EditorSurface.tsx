@@ -4,6 +4,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import Typography from '@tiptap/extension-typography';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { common, createLowlight } from 'lowlight';
 import {
   Bold,
@@ -13,6 +14,7 @@ import {
   GripVertical,
   Heading1,
   Heading2,
+  Heading3,
   Italic,
   List,
   ListOrdered,
@@ -23,7 +25,7 @@ import {
 import { AI_ACTIONS, type AIAction, AIPopup } from './AIPopup';
 import { CollaborationPresence } from './CollaborationPresence';
 import { streamSuggestion } from '../lib/api';
-import { docToPlainText } from '../lib/editorText';
+import { docToMarkdown, docToPlainText } from '../lib/editorText';
 import { BlockId, ensureBlockIds } from '../editor/blockId';
 import { SlashCommand } from '../editor/slashCommand';
 import { useCollaboration } from '../hooks/useCollaboration';
@@ -60,6 +62,7 @@ export function EditorSurface({ token, document, onSave }: Props) {
   const skipNextUpdate = useRef(false);
   const titleRef = useRef(title);
   const editorRef = useRef<ReturnType<typeof useEditor>>(null);
+  const saveDebounceRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
 
   const handleRemoteUpdate = useCallback((payload: BlockUpdatePayload) => {
     if (!editorRef.current || payload.content_json === editorRef.current.getJSON()) return;
@@ -166,6 +169,7 @@ export function EditorSurface({ token, document, onSave }: Props) {
     window.setTimeout(() => ensureBlockIds(editor), 0);
   }, [document, editor]);
 
+  // 30-second fallback auto-save (uses titleRef so no stale closure)
   useEffect(() => {
     const timer = window.setInterval(() => {
       if (editor && document) {
@@ -173,7 +177,19 @@ export function EditorSurface({ token, document, onSave }: Props) {
       }
     }, 30000);
     return () => window.clearInterval(timer);
-  }, [editor, document, title]);
+  }, [editor, document]);
+
+  // Debounced save — triggers 2 s after the last "Unsaved changes" status
+  useEffect(() => {
+    if (status !== 'Unsaved changes') return;
+    if (saveDebounceRef.current) window.clearTimeout(saveDebounceRef.current);
+    saveDebounceRef.current = window.setTimeout(() => {
+      if (editor && document) void saveNow();
+    }, 2000);
+    return () => {
+      if (saveDebounceRef.current) window.clearTimeout(saveDebounceRef.current);
+    };
+  }, [status, editor, document]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -198,7 +214,7 @@ export function EditorSurface({ token, document, onSave }: Props) {
   async function saveNow() {
     if (!editor || !document) return;
     setStatus('Saving...');
-    await onSave(title, editor.getJSON() as Record<string, unknown>);
+    await onSave(titleRef.current, editor.getJSON() as Record<string, unknown>);
     setStatus('Saved');
   }
 
@@ -285,7 +301,8 @@ export function EditorSurface({ token, document, onSave }: Props) {
   function exportText() {
     if (!editor) return;
     const fileTitle = (title || 'Untitled').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-') || 'noteflow-document';
-    const blob = new Blob([editor.getText()], { type: 'text/markdown;charset=utf-8' });
+    const markdown = docToMarkdown(editor.getJSON());
+    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = window.document.createElement('a');
     link.href = url;
@@ -297,7 +314,8 @@ export function EditorSurface({ token, document, onSave }: Props) {
   function calculateStats(content: Record<string, unknown>): EditorStats {
     const text = docToPlainText(content).trim();
     const words = text ? text.split(/\s+/).length : 0;
-    const blocks = Array.isArray((content as any).content) ? (content as any).content.length : 0;
+    const contentArray = content.content;
+    const blocks = Array.isArray(contentArray) ? contentArray.length : 0;
     return {
       words,
       blocks,
@@ -306,9 +324,9 @@ export function EditorSurface({ token, document, onSave }: Props) {
     };
   }
 
-  function findBlockPositionById(blockId: string): { pos: number; node: any } | null {
+  function findBlockPositionById(blockId: string): { pos: number; node: ProseMirrorNode } | null {
     if (!editor) return null;
-    let match: { pos: number; node: any } | null = null;
+    let match: { pos: number; node: ProseMirrorNode } | null = null;
     editor.state.doc.descendants((node, pos) => {
       if (node.attrs.blockId === blockId) {
         match = { pos, node };
@@ -319,9 +337,9 @@ export function EditorSurface({ token, document, onSave }: Props) {
     return match;
   }
 
-  function findCurrentBlock(position: number): { pos: number; node: any } | null {
+  function findCurrentBlock(position: number): { pos: number; node: ProseMirrorNode } | null {
     if (!editor) return null;
-    let match: { pos: number; node: any } | null = null;
+    let match: { pos: number; node: ProseMirrorNode } | null = null;
     editor.state.doc.descendants((node, pos) => {
       if (pos <= position && position <= pos + node.nodeSize && node.attrs.blockId) {
         match = { pos, node };
@@ -355,6 +373,7 @@ export function EditorSurface({ token, document, onSave }: Props) {
           />
           <div className="doc-metrics">
             <span>{stats.words} words</span>
+            <span>{stats.characters.toLocaleString()} chars</span>
             <span>{stats.blocks} blocks</span>
             <span>{stats.readingMinutes} min read</span>
           </div>
@@ -373,6 +392,9 @@ export function EditorSurface({ token, document, onSave }: Props) {
             <button className={editor?.isActive('heading', { level: 2 }) ? 'tool-button active' : 'tool-button'} type="button" onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()} title="Heading 2">
               <Heading2 size={16} />
             </button>
+            <button className={editor?.isActive('heading', { level: 3 }) ? 'tool-button active' : 'tool-button'} type="button" onClick={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()} title="Heading 3">
+              <Heading3 size={16} />
+            </button>
             <button className={editor?.isActive('bulletList') ? 'tool-button active' : 'tool-button'} type="button" onClick={() => editor?.chain().focus().toggleBulletList().run()} title="Bullet list">
               <List size={16} />
             </button>
@@ -389,7 +411,7 @@ export function EditorSurface({ token, document, onSave }: Props) {
           <div className="toolbar-actions">
             <CollaborationPresence users={remoteCursors} connected={connected} />
             <span className="save-status">{status}</span>
-            <button className="icon-button ai-quick" type="button" onClick={showAiPanel} title="AI improve">
+            <button className="icon-button ai-quick" type="button" onClick={showAiPanel} title="AI Copilot (Ctrl+J / ⌘J)">
               <Sparkles size={18} />
             </button>
             <button className="icon-button" type="button" onClick={exportText} title="Export Markdown">

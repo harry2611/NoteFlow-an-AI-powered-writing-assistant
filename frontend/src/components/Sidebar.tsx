@@ -1,6 +1,20 @@
 import { FileText, LogOut, Moon, Plus, Search, Sparkles, Sun, Trash2 } from 'lucide-react';
 import type { DocumentListItem, UserProfile } from '../types';
 
+function formatRelativeDate(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffMins < 1) return 'just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 type Props = {
   documents: DocumentListItem[];
   activeId: string | null;
@@ -106,22 +120,33 @@ export function Sidebar({
 
       <section className="sidebar-section scrollable">
         <h2>All documents</h2>
-        {documents.map((document) => (
-          <div className={document.id === activeId ? 'doc-row-shell active' : 'doc-row-shell'} key={document.id}>
-            <button className="doc-row" type="button" onClick={() => onOpen(document.id)}>
-              <span className="doc-dot" />
-              <span>{document.title || 'Untitled'}</span>
-            </button>
-            <button
-              className="doc-action"
-              type="button"
-              onClick={() => onDelete(document.id)}
-              title="Delete document"
-            >
-              <Trash2 size={14} />
-            </button>
+        {documents.length === 0 ? (
+          <div className="sidebar-empty">
+            <FileText size={26} />
+            <p>No documents yet.</p>
+            <p>Hit <strong>New document</strong> to start writing.</p>
           </div>
-        ))}
+        ) : (
+          documents.map((document) => (
+            <div className={document.id === activeId ? 'doc-row-shell active' : 'doc-row-shell'} key={document.id}>
+              <button className="doc-row" type="button" onClick={() => onOpen(document.id)}>
+                <span className="doc-dot" />
+                <span className="doc-text">
+                  <span>{document.title || 'Untitled'}</span>
+                  <small>{formatRelativeDate(document.updated_at)}</small>
+                </span>
+              </button>
+              <button
+                className="doc-action"
+                type="button"
+                onClick={() => onDelete(document.id)}
+                title="Delete document"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))
+        )}
       </section>
     </aside>
   );

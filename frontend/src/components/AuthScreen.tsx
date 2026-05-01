@@ -22,8 +22,9 @@ export function AuthScreen({ onAuthenticated }: Props) {
     try {
       const auth = mode === 'register' ? await register(name, email, password) : await login(email, password);
       onAuthenticated(auth);
-    } catch (err: any) {
-      setError(err.response?.data?.detail ?? 'Unable to authenticate');
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(detail ?? 'Unable to authenticate');
     } finally {
       setLoading(false);
     }

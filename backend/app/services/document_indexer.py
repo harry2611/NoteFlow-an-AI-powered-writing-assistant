@@ -50,7 +50,7 @@ async def index_document(session: AsyncSession, document: Document) -> int:
     return len(chunks)
 
 
-async def semantic_search(session: AsyncSession, query: str, limit: int = 5) -> list[dict[str, Any]]:
+async def semantic_search(session: AsyncSession, query: str, user_id: str, limit: int = 5) -> list[dict[str, Any]]:
     embedding = (await openai_service.embed([query]))[0]
     embedding_value = "[" + ",".join(str(value) for value in embedding) + "]"
     sql = text(
@@ -64,11 +64,12 @@ async def semantic_search(session: AsyncSession, query: str, limit: int = 5) -> 
           1 - (c.embedding <=> CAST(:embedding AS vector)) AS score
         FROM document_chunks c
         JOIN documents d ON d.id = c.document_id
+        WHERE d.user_id = :user_id
         ORDER BY c.embedding <=> CAST(:embedding AS vector)
         LIMIT :limit
         """
     )
-    rows = await session.execute(sql, {"embedding": embedding_value, "limit": limit})
+    rows = await session.execute(sql, {"embedding": embedding_value, "limit": limit, "user_id": user_id})
     return [dict(row._mapping) for row in rows]
 
 

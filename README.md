@@ -23,6 +23,45 @@ docker compose up --build
 - Backend API: http://localhost:8000/docs
 - Reverse proxy: http://localhost
 
+## Production Deployment
+
+The repo includes a production Docker Compose setup for a single VPS or Docker host. It builds the React app into static files, serves it with Nginx, runs FastAPI without reload, and keeps PostgreSQL + pgvector in a persistent Docker volume.
+
+For the simplest hosted deployment, use Render. See [DEPLOYMENT.md](DEPLOYMENT.md) for step-by-step Render instructions.
+
+1. Copy the production environment file:
+
+```bash
+cp .env.production.example .env.production
+```
+
+2. Edit `.env.production`:
+
+- Set `POSTGRES_PASSWORD` to a long random password.
+- Set `JWT_SECRET` to a long random secret.
+- Set `FRONTEND_ORIGIN` to the final site URL, such as `https://noteflow.example.com`.
+- Add `OPENAI_API_KEY` for real AI and semantic embeddings.
+
+3. Build and start production services:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+```
+
+4. Open your server URL. The production Nginx proxy serves:
+
+- Frontend: `/`
+- Backend API: `/api`
+- WebSockets: `/ws`
+
+5. To view logs:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml logs -f
+```
+
+For a custom domain, point DNS at the server and put a TLS proxy such as Caddy, Traefik, or a cloud load balancer in front of the Compose stack. Set `FRONTEND_ORIGIN` to the HTTPS domain.
+
 ## Features
 
 - TipTap block editor with paragraph, headings, lists, code blocks, quotes, and dividers

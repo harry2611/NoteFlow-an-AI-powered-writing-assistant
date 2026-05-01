@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.api import ai, auth, documents, search, ws
 from app.core.config import get_settings
@@ -23,6 +24,8 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup() -> None:
     async with engine.begin() as connection:
+        # Enable pgvector extension before creating tables (required on Railway / managed Postgres)
+        await connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await connection.run_sync(Base.metadata.create_all)
 
 

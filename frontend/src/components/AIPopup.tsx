@@ -1,5 +1,5 @@
-import { FormEvent } from 'react';
-import { Check, Lightbulb, PencilLine, RefreshCw, Send, Sparkles, Wand2, X } from 'lucide-react';
+import { FormEvent, useState } from 'react';
+import { Check, Clipboard, Lightbulb, PencilLine, RefreshCw, Send, Sparkles, Wand2, X } from 'lucide-react';
 
 export type AIAction = {
   label: string;
@@ -92,11 +92,20 @@ export function AIPopup({
   onRegenerate,
   onDismiss
 }: Props) {
+  const [copied, setCopied] = useState(false);
+
   if (!open) return null;
 
   function submitPrompt(event: FormEvent) {
     event.preventDefault();
     onCustomSubmit();
+  }
+
+  function copyToClipboard() {
+    if (!suggestion) return;
+    void navigator.clipboard.writeText(suggestion);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 2000);
   }
 
   return (
@@ -161,6 +170,10 @@ export function AIPopup({
         <button type="button" onClick={onRegenerate} disabled={loading || !selectedOption}>
           <RefreshCw size={15} />
           Regenerate
+        </button>
+        <button type="button" className={copied ? 'copied' : ''} onClick={copyToClipboard} disabled={!suggestion || loading}>
+          {copied ? <Check size={15} /> : <Clipboard size={15} />}
+          {copied ? 'Copied!' : 'Copy'}
         </button>
         <button type="button" onClick={onInsertBelow} disabled={!suggestion || loading}>
           Insert below

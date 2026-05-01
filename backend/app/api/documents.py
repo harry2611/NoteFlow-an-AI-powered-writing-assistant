@@ -63,7 +63,6 @@ async def update_document(
     await session.commit()
     await session.refresh(document)
     await index_document(session, document)
-    await session.refresh(document)
     return document
 
 

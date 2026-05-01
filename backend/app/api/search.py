@@ -21,7 +21,7 @@ async def index(payload: IndexRequest, session: AsyncSession = Depends(get_sessi
 
 
 @router.post("/query", response_model=list[SearchResult])
-async def query(payload: SearchQuery, session: AsyncSession = Depends(get_session), _: User = Depends(get_current_user)):
-    rows = await semantic_search(session, payload.query, payload.limit)
+async def query(payload: SearchQuery, session: AsyncSession = Depends(get_session), current_user: User = Depends(get_current_user)):
+    rows = await semantic_search(session, payload.query, current_user.id, payload.limit)
     return rows
 
