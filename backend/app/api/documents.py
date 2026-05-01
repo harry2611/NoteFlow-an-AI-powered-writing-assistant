@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +10,16 @@ from app.models.document import Document
 from app.models.user import User
 from app.schemas.document import DocumentCreate, DocumentListItem, DocumentOut, DocumentUpdate
 from app.services.document_indexer import index_document
+
+logger = logging.getLogger(__name__)
+
+
+async def _safe_index(session: AsyncSession, document: Document) -> None:
+    """Index document for semantic search — never blocks saving if it fails."""
+    try:
+        await _safe_index(session, document)
+    except Exception as exc:
+        logger.warning("Document indexing skipped (non-fatal): %s", exc)
 
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -23,7 +35,7 @@ async def create_document(
     session.add(document)
     await session.commit()
     await session.refresh(document)
-    await index_document(session, document)
+    await _safe_index(session, document)
     return document
 
 
@@ -62,7 +74,7 @@ async def update_document(
         document.content_json = payload.content_json
     await session.commit()
     await session.refresh(document)
-    await index_document(session, document)
+    await _safe_index(session, document)
     return document
 
 

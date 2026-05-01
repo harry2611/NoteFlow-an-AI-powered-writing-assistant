@@ -9,9 +9,9 @@ type Props = {
 
 export function AuthScreen({ onAuthenticated }: Props) {
   const [mode, setMode] = useState<'login' | 'register'>('register');
-  const [name, setName] = useState('Harsh');
-  const [email, setEmail] = useState('harsh@example.com');
-  const [password, setPassword] = useState('password123');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -42,16 +42,16 @@ export function AuthScreen({ onAuthenticated }: Props) {
           {mode === 'register' && (
             <label>
               Name
-              <input value={name} onChange={(event) => setName(event.target.value)} />
+              <input placeholder="Your name" value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" />
             </label>
           )}
           <label>
             Email
-            <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+            <input type="email" placeholder="you@example.com" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" />
           </label>
           <label>
             Password
-            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+            <input type="password" placeholder="Create a password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === 'register' ? 'new-password' : 'current-password'} />
           </label>
           {error && <p className="form-error">{error}</p>}
           <button disabled={loading} type="submit">
