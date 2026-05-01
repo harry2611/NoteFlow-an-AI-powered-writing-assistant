@@ -13,13 +13,16 @@ router = APIRouter(prefix="/ai", tags=["ai"])
 @router.post("/suggest")
 async def suggest(payload: SuggestRequest, _: User = Depends(get_current_user)) -> StreamingResponse:
     async def event_stream():
-        async for token in openai_service.stream_suggestion(
-            text=payload.text,
-            instruction=payload.instruction,
-            document_title=payload.document_title,
-            surrounding_text=payload.surrounding_text,
-        ):
-            yield token
+        try:
+            async for token in openai_service.stream_suggestion(
+                text=payload.text,
+                instruction=payload.instruction,
+                document_title=payload.document_title,
+                surrounding_text=payload.surrounding_text,
+            ):
+                yield token
+        except Exception as exc:
+            yield f"[AI_ERROR: {exc}]"
 
     return StreamingResponse(event_stream(), media_type="text/plain")
 

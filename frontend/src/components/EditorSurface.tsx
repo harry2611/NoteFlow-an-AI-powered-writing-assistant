@@ -248,17 +248,23 @@ export function EditorSurface({ token, document, onSave }: Props) {
     const selectedText = editor.state.doc.textBetween(from, to, ' ');
     const surroundingText = docToPlainText(editor.getJSON());
     let receivedChunks = 0;
+    let fullResponse = '';
     try {
       await streamSuggestion(
         token,
         { text: selectedText, instruction, document_title: title, surrounding_text: surroundingText.slice(0, 4000) },
         (chunk) => {
           receivedChunks++;
+          fullResponse += chunk;
           setAiSuggestion((value) => value + chunk);
         }
       );
       if (receivedChunks === 0) {
-        setAiError('No response from AI. Make sure OPENAI_API_KEY is set correctly in your Railway backend variables.');
+        setAiError('No response from AI — check backend deploy logs for details.');
+      } else if (fullResponse.startsWith('[AI_ERROR:')) {
+        const msg = fullResponse.replace(/^\[AI_ERROR:\s*/, '').replace(/\]$/, '');
+        setAiSuggestion('');
+        setAiError(`OpenAI error: ${msg}`);
       }
     } catch (error) {
       setAiError(error instanceof Error ? error.message : 'AI could not generate a suggestion.');
