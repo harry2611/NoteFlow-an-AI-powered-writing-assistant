@@ -59,6 +59,7 @@ export function EditorSurface({ token, document, onSave }: Props) {
   const [remoteCursors, setRemoteCursors] = useState<Collaborator[]>([]);
   const [stats, setStats] = useState<EditorStats>({ words: 0, blocks: 0, characters: 0, readingMinutes: 1 });
   const [focusMode, setFocusMode] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const skipNextUpdate = useRef(false);
   const titleRef = useRef(title);
   const editorRef = useRef<ReturnType<typeof useEditor>>(null);
@@ -214,8 +215,13 @@ export function EditorSurface({ token, document, onSave }: Props) {
   async function saveNow() {
     if (!editor || !document) return;
     setStatus('Saving...');
-    await onSave(titleRef.current, editor.getJSON() as Record<string, unknown>);
-    setStatus('Saved');
+    try {
+      await onSave(titleRef.current, editor.getJSON() as Record<string, unknown>);
+      setStatus('Saved');
+    } catch {
+      setStatus('Save failed — will retry');
+      window.setTimeout(() => setStatus('Unsaved changes'), 3000);
+    }
   }
 
   function showAiPanel() {
@@ -241,12 +247,19 @@ export function EditorSurface({ token, document, onSave }: Props) {
     const { from, to } = editor.state.selection;
     const selectedText = editor.state.doc.textBetween(from, to, ' ');
     const surroundingText = docToPlainText(editor.getJSON());
+    let receivedChunks = 0;
     try {
       await streamSuggestion(
         token,
         { text: selectedText, instruction, document_title: title, surrounding_text: surroundingText.slice(0, 4000) },
-        (chunk) => setAiSuggestion((value) => value + chunk)
+        (chunk) => {
+          receivedChunks++;
+          setAiSuggestion((value) => value + chunk);
+        }
       );
+      if (receivedChunks === 0) {
+        setAiError('No response from AI. Make sure OPENAI_API_KEY is set correctly in your Railway backend variables.');
+      }
     } catch (error) {
       setAiError(error instanceof Error ? error.message : 'AI could not generate a suggestion.');
     } finally {
@@ -298,17 +311,65 @@ export function EditorSurface({ token, document, onSave }: Props) {
     return 'Ready for a new draft';
   }
 
-  function exportText() {
-    if (!editor) return;
-    const fileTitle = (title || 'Untitled').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-') || 'noteflow-document';
-    const markdown = docToMarkdown(editor.getJSON());
-    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+  function safeFileName() {
+    return (title || 'Untitled').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-') || 'noteflow-document';
+  }
+
+  function downloadBlob(content: string, filename: string, mime: string) {
+    const blob = new Blob([content], { type: mime });
     const url = URL.createObjectURL(blob);
     const link = window.document.createElement('a');
     link.href = url;
-    link.download = `${fileTitle}.md`;
+    link.download = filename;
     link.click();
     URL.revokeObjectURL(url);
+  }
+
+  function exportMd() {
+    if (!editor) return;
+    downloadBlob(docToMarkdown(editor.getJSON()), `${safeFileName()}.md`, 'text/markdown;charset=utf-8');
+    setExportOpen(false);
+  }
+
+  function exportTxt() {
+    if (!editor) return;
+    downloadBlob(docToPlainText(editor.getJSON()), `${safeFileName()}.txt`, 'text/plain;charset=utf-8');
+    setExportOpen(false);
+  }
+
+  function exportPdf() {
+    if (!editor) return;
+    const docTitle = title || 'Untitled';
+    const html = editor.getHTML();
+    const printWindow = window.open('', '_blank', 'width=900,height=700');
+    if (!printWindow) return;
+    printWindow.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <title>${docTitle}</title>
+  <style>
+    body { font-family: Georgia, 'Times New Roman', serif; max-width: 720px; margin: 48px auto; line-height: 1.75; font-size: 16px; color: #1a1a1a; }
+    h1 { font-size: 2em; border-bottom: 2px solid #eee; padding-bottom: 12px; margin-bottom: 28px; }
+    h2 { font-size: 1.5em; margin-top: 36px; }
+    h3 { font-size: 1.2em; margin-top: 28px; }
+    p { margin: 14px 0; }
+    ul, ol { padding-left: 28px; }
+    li { margin: 6px 0; }
+    blockquote { border-left: 3px solid #ccc; margin: 20px 0; padding: 8px 20px; color: #555; font-style: italic; }
+    code { background: #f5f5f5; padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 0.88em; }
+    pre { background: #f5f5f5; padding: 18px; border-radius: 6px; overflow-x: auto; }
+    hr { border: none; border-top: 1px solid #ddd; margin: 32px 0; }
+    @page { margin: 2cm; }
+  </style>
+</head>
+<body>
+  <h1>${docTitle}</h1>
+  ${html}
+  <script>window.onload = () => { window.print(); };<\/script>
+</body>
+</html>`);
+    printWindow.document.close();
+    setExportOpen(false);
   }
 
   function calculateStats(content: Record<string, unknown>): EditorStats {
@@ -414,7 +475,7 @@ export function EditorSurface({ token, document, onSave }: Props) {
             <button className="icon-button ai-quick" type="button" onClick={showAiPanel} title="AI Copilot (Ctrl+J / ⌘J)">
               <Sparkles size={18} />
             </button>
-            <button className="icon-button" type="button" onClick={exportText} title="Export Markdown">
+            <button className="icon-button" type="button" onClick={() => setExportOpen(true)} title="Export document">
               <Download size={18} />
             </button>
             <button className={focusMode ? 'icon-button active' : 'icon-button'} type="button" onClick={() => setFocusMode((value) => !value)} title="Focus mode">
@@ -452,6 +513,33 @@ export function EditorSurface({ token, document, onSave }: Props) {
           }}
         />
       </div>
+
+      {exportOpen && (
+        <div className="export-overlay" onClick={() => setExportOpen(false)}>
+          <div className="export-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3 className="export-title">Export document</h3>
+            <p className="export-subtitle">Choose a format to download</p>
+            <div className="export-options">
+              <button className="export-option" type="button" onClick={exportMd}>
+                <span className="export-icon">📝</span>
+                <span className="export-label">Markdown</span>
+                <span className="export-ext">.md</span>
+              </button>
+              <button className="export-option" type="button" onClick={exportTxt}>
+                <span className="export-icon">📄</span>
+                <span className="export-label">Plain text</span>
+                <span className="export-ext">.txt</span>
+              </button>
+              <button className="export-option" type="button" onClick={exportPdf}>
+                <span className="export-icon">📑</span>
+                <span className="export-label">PDF</span>
+                <span className="export-ext">.pdf</span>
+              </button>
+            </div>
+            <button className="export-cancel" type="button" onClick={() => setExportOpen(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
